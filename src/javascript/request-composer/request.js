@@ -12,37 +12,44 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
+/* global gapi */
+
+
 import moment from 'moment';
 
 
 /**
- * Builds a the top level Analytics Reporting API V4
+ * Builds a the top level Analytics Reporting API v4
  * ReportRequest object, and sets all the top level
  * fields.
  * @param {Object} params The request composer's parameters object.
+ * @param {Object} settings The Request Composer settings.
  * @return {Object} The Report Request Object.
  */
-function buildReportRequest(params) {
+function buildReportRequest(params, settings) {
   let reportRequest = {
-      viewId: params.viewId,
-      samplingLevel: params.samplingLevel,
+    viewId: params.viewId
   };
-  if (params.filters) {
-    reportRequest.filtersExpression = params.filters;
+
+  if (params.samplingLevel) {
+    reportRequest.samplingLevel = params.samplingLevel;
   }
-  if (params.includeEmptyRows) {
-    if (params.includeEmptyRows.toLowerCase() == 'true') {
-      reportRequest.includeEmptyRows = 'true';
-    } else if (params.includeEmptyRows.toLowerCase() == 'false') {
-      reportRequest.includeEmptyRows = 'false';
+
+  if (settings.requestType != 'COHORT') {
+
+    if (params.filters) {
+      reportRequest.filtersExpression = params.filters;
     }
-  }
-  if (params.pageSize &&
-      parseInt(params.pageSize)) {
-    reportRequest.pageSize = params.pageSize;
-  }
-  if (params.pageToken) {
-    reportRequest.pageToken = params.pageToken;
+    if (settings.requestType != 'HISTOGRAM') {
+      if (params.pageSize &&
+          parseInt(params.pageSize)) {
+        reportRequest.pageSize = params.pageSize;
+      }
+      if (params.pageToken) {
+        reportRequest.pageToken = params.pageToken;
+      }
+    }
   }
   return reportRequest;
 }
@@ -336,17 +343,41 @@ function applyCohorts(request, params, settings) {
   return request;
 }
 
+
 /**
- * Composes the body of an Analytics Reporting API V4 request.
+ * Wraps the client library's batchGet method to return a promise that is
+ * resolved with the response.
+ * @param {Object} request
+ * @return {Promise}
+ */
+export function batchGet(request) {
+  return new Promise((resolve, reject) => {
+    gapi.client.analyticsreporting.reports
+        .batchGet(request)
+        .then(resolve, reject);
+  });
+}
+
+
+/**
+ * Composes the body of an Analytics Reporting API v4 request.
  * @param {Object} params The Request Composer parameters.
  * @param {Object} settings The Request Composer settings.
- * @returns {Object} The Analytics Reporting API V4 request.
+ * @returns {Object} The Analytics Reporting API v4 request.
  */
 export function composeRequest(params, settings) {
   if (!params || !settings) {
     return null;
   }
-  let reportRequest = buildReportRequest(params);
+  let reportRequest = buildReportRequest(params, settings);
+
+  if (settings.requestType == 'COHORT') {
+    reportRequest.includeEmptyRows = true;
+  } else if (settings.requestType == 'PIVOT' &&
+             params.includeEmptyRows !== '') {
+    reportRequest.includeEmptyRows = params.includeEmptyRows;
+  }
+
   applyDateRanges(reportRequest, params, settings);
   applyMetrics(reportRequest, params, settings);
   applyDimensions(reportRequest, params, settings);
@@ -358,37 +389,33 @@ export function composeRequest(params, settings) {
   return request;
 }
 
-const code = new RegExp('("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|'+
-  '\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)', 'g');
-
 /**
- * Highlights the JSON syntax
- * @param {Object|String} json The JSON object to highlight.
- * @return {String} The highlighted JSON string.
+ * Validates request for required fields.
+ * @param {Object} params The Request Composer Parameters.
+ * @param {Object} settings The Request Composer settings.
+ * @returns {boolean} Wheather or not the field params are valid.
  */
-export function syntaxHighlight(json) {
-    if (!json) {
-      return;
-    }
-    if (typeof json != 'string') {
-         json = JSON.stringify(json, undefined, 2);
-    }
-    json = json.replace(/&/g, '&amp;');
-    json = json.replace(/</g, '&lt;');
-    json = json.replace(/>/g, '&gt;');
-    return json.replace(code, function (match) {
-        let cls = 'number';
-        if (/^"/.test(match)) {
-            if (/:$/.test(match)) {
-                cls = 'key';
-            } else {
-                cls = 'string';
-            }
-        } else if (/true|false/.test(match)) {
-            cls = 'boolean';
-        } else if (/null/.test(match)) {
-            cls = 'null';
-        }
-        return '<span class="' + cls + '">' + match + '</span>';
-    });
-}
+ export function validateRequest(params, settings) {
+  if (!params || !settings) {
+    return false;
+  }
+  if (!params.viewId || !params.startDate || !params.endDate) {
+    return false;
+  }
+
+  if (settings.requestType == 'HISTOGRAM') {
+    return (params.histogramDimensions &&
+            params.metrics &&
+            params.buckets);
+  } else if (settings.requestType == 'PIVOT') {
+    return (params.metrics &&
+            params.dimensions &&
+            params.pivotMetrics &&
+            params.pivotDimensions);
+  } else if (settings.requestType == 'COHORT') {
+    return (params.cohortMetrics &&
+            params.cohortSize);
+  } else {
+    return false;
+  }
+ }

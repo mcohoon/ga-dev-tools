@@ -285,9 +285,32 @@ gulp.task('build:all', [
 ]);
 
 
-gulp.task('build', function() {
-  // Force production mode if NODE_ENV isn't set.
-  if (!('NODE_ENV' in process.env)) process.env.NODE_ENV = 'production';
+gulp.task('stage', ['build:all'], (done) => {
+  if (!isProd()) {
+    throw new Error('The stage task must be run in production mode.');
+  }
 
-  gulp.start('build:all');
+  const appId = 'google.com:ga-dev-tools';
+  const version = process.env.APP_ENGINE_VERSION || `v${Date.now()}`;
+
+  const appConfig =
+      spawn('appcfg.py', ['update', '-A', appId, '-V', version, '.']);
+
+  appConfig.stderr.on('data', (data) => process.stdout.write(data));
+  appConfig.on('close', () => done());
+});
+
+gulp.task('deploy', ['build:all'], (done) => {
+  if (!isProd()) {
+    throw new Error('The deploy task must be run in production mode.');
+  }
+
+  const appId = 'ga-dev-tools';
+  const version = process.env.APP_ENGINE_VERSION || `v${Date.now()}`;
+
+  const appConfig =
+      spawn('appcfg.py', ['update', '-A', appId, '-V', version, '.']);
+
+  appConfig.stderr.on('data', (data) => process.stdout.write(data));
+  appConfig.on('close', () => done());
 });
